@@ -368,6 +368,10 @@ textarea.draft::placeholder{color:#a2aa9f}
     right.style.visibility = view === 'session' ? 'hidden' : 'visible';
   }
 
+  function renderHome(){
+    viewEl.innerHTML = homeHTML();
+  }
+
   function homeHTML(){
     const counts = DATA.counts;
     return `
