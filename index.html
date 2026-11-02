@@ -621,7 +621,10 @@ textarea.draft::placeholder{color:#a2aa9f}
   }
 
   function sessionCardHTML(q, ent, review){
-    const showAnswer = review || (ent && ent.status !== 'unanswered');
+    const answered = review || (ent && ent.status !== 'unanswered');
+    const revealed = !review && ent && ent.revealed;
+    const showAnswerBox = answered || revealed;
+    const showAnalysis = answered;
     const showReveal = !review && (q.type === 'fill' || q.type === 'essay') && !ent.revealed;
     const canSelf = !review && (q.type === 'fill' || q.type === 'essay') && ent.revealed && ent.status === 'unanswered';
     return `
@@ -632,9 +635,9 @@ textarea.draft::placeholder{color:#a2aa9f}
       ${(q.type === 'fill' || q.type === 'essay') ? `<textarea class="draft" data-draft placeholder="先写下你的答案或思路（可选），再核对参考答案">${ent ? escAttr(ent.draft) : ''}</textarea>` : ''}
       ${showReveal ? `<div class="reveal-wrap"><button class="reveal-btn" data-action="reveal">查看参考答案</button></div>` : ''}
       ${canSelf ? `<div class="self-grid"><button class="self-btn ok" data-action="self" data-result="correct">这题我会</button><button class="self-btn bad" data-action="self" data-result="wrong">还没掌握</button></div>` : ''}
-      ${showAnswer ? feedbackHTML(q,ent,review) : ''}
-      ${showAnswer ? answerBoxHTML(q) : ''}
-      ${showAnswer ? analysisHTML(q) : ''}
+      ${showAnalysis ? feedbackHTML(q,ent,review) : ''}
+      ${showAnswerBox ? answerBoxHTML(q) : ''}
+      ${showAnalysis ? analysisHTML(q) : ''}
       ${!review ? `<div class="nav-row"><button class="nav-prev" data-action="prev" ${session.index===0?'disabled':''}>上一题</button><button class="nav-next" data-action="next" ${ent.status==='unanswered'?'disabled':''}>${session.index===session.ids.length-1?'完成本轮':'下一题'}</button></div><div class="kbd-hint">键盘：A–D 选择 · 1/2 判断 · Enter 下一题</div>` : ''}
     `;
   }
