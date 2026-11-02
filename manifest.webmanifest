@@ -1,0 +1,15 @@
+{
+  "name": "数据结构刷题",
+  "short_name": "数据结构刷题",
+  "description": "数据结构期末题库：顺序刷题、乱序刷题、错题重刷与解析",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fff5f7",
+  "theme_color": "#d96488",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
