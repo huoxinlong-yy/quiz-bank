@@ -278,6 +278,20 @@ textarea.draft::placeholder{color:#b3939c}
   .panel{padding:16px}
   .kbd-hint{display:none}
 }
+@media (max-width:380px){
+  .app{padding:0 11px 30px}
+  h1{font-size:29px}
+  .hero-sub{font-size:13px}
+  .mode-card{padding:13px 12px; gap:10px}
+  .mode-copy h3{font-size:15px}
+  .mode-copy p{font-size:12px}
+  .session-head .right{gap:5px}
+  .refresh-btn{padding:5px 8px; font-size:10.5px}
+  .summary-ring{width:130px;height:130px}
+  .summary-grid{gap:6px}
+  .summary-grid .stat{padding:10px 7px}
+  .summary-grid .stat b{font-size:19px}
+}
 @media (prefers-reduced-motion: reduce){
   *{transition:none !important; animation:none !important; scroll-behavior:auto !important}
 }
@@ -690,6 +704,7 @@ textarea.draft::placeholder{color:#b3939c}
     if(!session){ go('home'); return; }
     const answered = session.entries.some(e => e.status !== 'unanswered');
     if(answered && !window.confirm('刷新后本轮进度清空，从第 1 题重新开始，确定吗？')) return;
+    if(session.mode === 'wrong'){ beginSession('wrong', shuffle(session.ids)); return; }
     startSessionByMode(session.mode);
   }
 
