@@ -248,6 +248,31 @@ textarea.draft::placeholder{color:#b3939c}
 .summary-grid .stat b{font-size:22px}
 .summary-actions{display:grid; gap:10px; margin-top:18px}
 .summary-actions .btn-primary{margin-top:0}
+.notes-box{margin-top:14px; background:#fffafc; border:1px solid var(--line); border-radius:16px; padding:11px 15px}
+.notes-box summary{cursor:pointer; list-style:none; display:flex; align-items:center; gap:7px; font-size:13px; font-weight:750; color:var(--accent)}
+.notes-box summary::-webkit-details-marker{display:none}
+.notes-box summary::before{content:"＋"; font-weight:800; color:var(--accent)}
+.notes-box[open] summary::before{content:"－"}
+.note-count{margin-left:auto; font-size:11px; font-weight:500; color:var(--muted)}
+.note-text{
+  width:100%; min-height:82px; margin-top:10px; border:1px solid var(--line); border-radius:12px;
+  background:#fff; color:var(--ink); padding:10px 12px; font:inherit; font-size:14px; line-height:1.65; resize:vertical;
+}
+.note-text::placeholder{color:#b3939c}
+.note-actions{display:flex; justify-content:flex-end; margin-top:8px}
+.note-upload{
+  display:inline-flex; align-items:center; gap:6px; border:1px dashed #e9b8ca; background:#fdf1f5;
+  color:var(--accent); border-radius:10px; padding:8px 12px; font-size:12.5px; font-weight:700; cursor:pointer;
+}
+.note-upload input{display:none}
+.note-images{display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:8px; margin-top:10px}
+.note-img{position:relative; aspect-ratio:1; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff}
+.note-img img{width:100%; height:100%; object-fit:cover; display:block; cursor:zoom-in}
+.note-img button{
+  position:absolute; top:3px; right:3px; width:22px; height:22px; border:none; border-radius:50%;
+  background:rgba(59,38,48,.78); color:#fff; font-size:13px; line-height:1; cursor:pointer;
+}
+.resume-panel .summary-grid{margin-top:14px}
 .review-head{display:flex; align-items:center; gap:8px; margin:14px 0 8px}
 .review-head h2{margin:0; font-size:22px; letter-spacing:-.02em}
 .img-viewer{position:fixed; inset:0; z-index:60; background:rgba(46,24,33,.9); display:grid; place-items:center; padding:18px; cursor:zoom-out}
@@ -337,6 +362,115 @@ textarea.draft::placeholder{color:#b3939c}
   let session = null;
   let reviewId = null;
   let toastTimer = null;
+  let pendingMode = null;
+
+  const PROGRESS_KEY = 'ds_quiz_progress_v1';
+  const NOTES_KEY = 'ds_quiz_notes_v1';
+
+  function loadProgress(){
+    try{
+      const raw = localStorage.getItem(PROGRESS_KEY);
+      const p = raw ? JSON.parse(raw) : {};
+      return p && typeof p === 'object' ? p : {};
+    }catch(e){ return {}; }
+  }
+  let progress = loadProgress();
+
+  function hasProgress(mode){
+    const p = progress[mode];
+    return !!(p && Array.isArray(p.ids) && p.ids.length && Array.isArray(p.entries) && p.entries.length === p.ids.length);
+  }
+  function progressStats(p){
+    const answered = p.entries.filter(e => e.status !== 'unanswered').length;
+    const correct = p.entries.filter(e => e.status === 'correct').length;
+    return { answered, correct, pct: answered ? Math.round(correct / answered * 100) : 0, total: p.ids.length, done: answered >= p.ids.length };
+  }
+  function saveProgress(){
+    if(!session || session.mode === 'wrong') return;
+    progress[session.mode] = {
+      mode: session.mode,
+      ids: session.ids.slice(),
+      index: session.index,
+      entries: session.entries.map(e => ({ id:e.id, status:e.status, choice:e.choice, revealed:e.revealed, self:e.self, draft:e.draft })),
+      updated: Date.now()
+    };
+    try{ localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress)); }catch(e){}
+  }
+  function clearProgress(mode){
+    delete progress[mode];
+    try{ localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress)); }catch(e){}
+  }
+
+  function loadNotes(){
+    try{
+      const raw = localStorage.getItem(NOTES_KEY);
+      const n = raw ? JSON.parse(raw) : {};
+      return n && typeof n === 'object' ? n : {};
+    }catch(e){ return {}; }
+  }
+  let notes = loadNotes();
+
+  function noteFor(id){
+    const n = notes[id];
+    return { text: (n && n.text) || '', images: (n && Array.isArray(n.images)) ? n.images : [] };
+  }
+  function saveNotes(){
+    try{
+      localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+      return true;
+    }catch(e){
+      showToast('笔记图片太多，手机存储空间不足');
+      return false;
+    }
+  }
+  function noteSummary(n){
+    const bits = [];
+    if(n.text.trim()) bits.push('文字');
+    if(n.images.length) bits.push(n.images.length + ' 张图');
+    return bits.join(' · ') || '可选';
+  }
+
+  function compressNoteImage(file){
+    return new Promise(resolve => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const max = 1000;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg', 0.78));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    });
+  }
+
+  async function addNoteImages(id, files){
+    const n = noteFor(id);
+    const added = [];
+    for(const file of files){
+      if(!file.type || !file.type.startsWith('image/')) continue;
+      const data = await compressNoteImage(file);
+      if(data) added.push(data);
+    }
+    if(!added.length) return;
+    n.images.push(...added);
+    notes[id] = { text:n.text, images:n.images };
+    if(!saveNotes()){
+      notes[id] = { text:n.text, images:n.images.slice(0, n.images.length - added.length) };
+      if(!notes[id].text.trim() && !notes[id].images.length) delete notes[id];
+      return;
+    }
+    render();
+    showToast('图片已添加到笔记');
+  }
 
   const $ = id => document.getElementById(id);
   const viewEl = $('view');
@@ -366,6 +500,7 @@ textarea.draft::placeholder{color:#b3939c}
   function render(){
     updateChrome();
     if(view === 'home') renderHome();
+    else if(view === 'resume') renderResume();
     else if(view === 'session') renderSession();
     else if(view === 'wrong') renderWrong();
     else if(view === 'review') renderReview();
@@ -374,7 +509,7 @@ textarea.draft::placeholder{color:#b3939c}
 
   function updateChrome(){
     const sessionTitle = session ? (session.mode === 'wrong' ? '错题重刷' : session.mode === 'shuffle' ? '乱序刷题' : '顺序刷题') : '练习中';
-    const titles = { home:'数据结构刷题', session:sessionTitle, wrong:'错题本', review:'题目回顾', summary:'本轮小结' };
+    const titles = { home:'数据结构刷题', resume:'继续刷题', session:sessionTitle, wrong:'错题本', review:'题目回顾', summary:'本轮小结' };
     $('topTitle').textContent = titles[view] || '数据结构刷题';
     const back = $('backBtn');
     back.style.visibility = view === 'home' ? 'hidden' : 'visible';
@@ -388,6 +523,37 @@ textarea.draft::placeholder{color:#b3939c}
     viewEl.innerHTML = homeHTML();
   }
 
+  function renderResume(){
+    if(!pendingMode || !hasProgress(pendingMode)){ go('home'); return; }
+    const p = progress[pendingMode];
+    const s = progressStats(p);
+    const name = pendingMode === 'shuffle' ? '乱序刷题' : '顺序刷题';
+    viewEl.innerHTML = `
+      <section class="panel resume-panel">
+        <div class="eyebrow">上次进度</div>
+        <h2>${name}</h2>
+        <p class="desc">${s.done ? `上次已完成，正确率 ${s.pct}%。可以查看上次小结，或重新开始。` : `上次做到第 ${Math.min(p.index + 1, s.total)} / ${s.total} 题，答题记录已保存。`}</p>
+        <div class="summary-grid">
+          <div class="stat"><div class="k">总题数</div><b>${s.total}</b></div>
+          <div class="stat"><div class="k">已答</div><b>${s.answered}</b></div>
+          <div class="stat"><div class="k">正确率</div><b>${s.answered ? s.pct + '%' : '—'}</b></div>
+        </div>
+        <button class="btn-primary" data-action="resume-continue">${s.done ? '查看上次小结' : '继续上次'}</button>
+        <div class="btn-row">
+          <button class="btn-ghost" data-action="resume-restart">重新开始</button>
+          <button class="btn-ghost" data-action="home">返回首页</button>
+        </div>
+      </section>`;
+  }
+
+  function modeDesc(mode, fallback){
+    if(!hasProgress(mode)) return fallback;
+    const p = progress[mode];
+    const s = progressStats(p);
+    if(s.done) return `上次已完成 · 正确率 ${s.pct}% · 点击继续或重刷`;
+    return `上次做到第 ${Math.min(p.index + 1, s.total)} / ${s.total} 题 · 可继续或重刷`;
+  }
+
   function homeHTML(){
     const counts = DATA.counts;
     return `
@@ -396,14 +562,14 @@ textarea.draft::placeholder{color:#b3939c}
       <h1>数据结构<br><em>刷题本</em></h1>
       <p class="hero-sub">共 <b>${TOTAL}</b> 道题，包含单选、判断、填空和大题。顺序或乱序完整刷一遍，答错的题会自动进错题本。</p>
       <div class="mode-list">
-        <button class="mode-card" data-action="start-seq">
+        <button class="mode-card" data-action="open-mode" data-mode="sequential">
           <div class="mode-icon">${iconList()}</div>
-          <div class="mode-copy"><h3>顺序刷题</h3><p>从第 1 题依次做到第 ${TOTAL} 题</p></div>
+          <div class="mode-copy"><h3>顺序刷题</h3><p>${modeDesc('sequential', `从第 1 题依次做到第 ${TOTAL} 题`)}</p></div>
           <div class="mode-arrow">›</div>
         </button>
-        <button class="mode-card" data-action="start-shuffle">
+        <button class="mode-card" data-action="open-mode" data-mode="shuffle">
           <div class="mode-icon orange">${iconShuffle()}</div>
-          <div class="mode-copy"><h3>乱序刷题</h3><p>全部 ${TOTAL} 题打乱顺序，随机自测</p></div>
+          <div class="mode-copy"><h3>乱序刷题</h3><p>${modeDesc('shuffle', `全部 ${TOTAL} 题打乱顺序，随机自测`)}</p></div>
           <div class="mode-arrow">›</div>
         </button>
         <button class="mode-card" data-action="wrong-start">
@@ -418,7 +584,7 @@ textarea.draft::placeholder{color:#b3939c}
         <span class="type-pill">填空 ${counts.fill}</span>
         <span class="type-pill">简答 ${counts.essay}</span>
       </div>
-      <p class="footnote">答案以学习通作业页面的“Correct Answer”为准；页面没有解析的题目已补充简明解析。大题参考答案中的手写图和公式均按原图保存。</p>
+      <p class="footnote">答案以学习通作业页面的“Correct Answer”为准；页面没有解析的题目已补充简明解析。大题参考答案中的手写图和公式均按原图保存。进度和笔记保存在本机浏览器。</p>
     </section>`;
   }
 
@@ -445,10 +611,12 @@ textarea.draft::placeholder{color:#b3939c}
   }
 
   function startSequential(){
+    clearProgress('sequential');
     beginSession('sequential', allIds());
   }
 
   function startShuffle(){
+    clearProgress('shuffle');
     beginSession('shuffle', shuffle(allIds()));
   }
 
@@ -460,6 +628,39 @@ textarea.draft::placeholder{color:#b3939c}
 
   function startOne(id){
     beginSession('wrong', [id]);
+  }
+
+  function launchMode(mode){
+    if(mode === 'sequential') startSequential();
+    else if(mode === 'shuffle') startShuffle();
+    else startWrong();
+  }
+
+  function openMode(mode){
+    pendingMode = mode;
+    if(hasProgress(mode)) go('resume');
+    else launchMode(mode);
+  }
+
+  function resumeSession(){
+    const mode = pendingMode;
+    if(!mode || !hasProgress(mode)){ launchMode(mode || 'sequential'); return; }
+    const p = progress[mode];
+    const s = progressStats(p);
+    session = {
+      mode: p.mode,
+      ids: p.ids.slice(),
+      index: Math.min(Math.max(0, Number(p.index) || 0), p.ids.length - 1),
+      entries: p.entries.map(e => ({
+        id: e.id,
+        status: e.status || 'unanswered',
+        choice: e.choice ?? null,
+        revealed: !!e.revealed,
+        self: e.self ?? null,
+        draft: e.draft || ''
+      }))
+    };
+    go(s.done ? 'summary' : 'session');
   }
 
   function currentEntry(){ return session ? session.entries[session.index] : null; }
@@ -582,6 +783,17 @@ textarea.draft::placeholder{color:#b3939c}
     return `<div class="feedback ${isCorrect?'ok':'bad'}"><span class="fb-icon">${isCorrect?'✓':'!'}</span><div class="fb-copy">${label}<small>${sub}</small></div></div>`;
   }
 
+  function notesHTML(id){
+    const n = noteFor(id);
+    const open = n.text.trim() || n.images.length;
+    return `<details class="notes-box" ${open ? 'open' : ''}>
+      <summary>知识点笔记 <span class="note-count">${noteSummary(n)}</span></summary>
+      <textarea class="note-text" data-note-id="${id}" placeholder="记录这道题的知识点、易错点，或写下自己的理解……">${escAttr(n.text)}</textarea>
+      <div class="note-actions"><label class="note-upload">上传图片<input type="file" class="note-file" data-note-id="${id}" accept="image/*" multiple></label></div>
+      ${n.images.length ? `<div class="note-images">${n.images.map((src, i) => `<div class="note-img"><img src="${src}" alt="笔记图片"><button type="button" data-action="delete-note-image" data-note-id="${id}" data-index="${i}" aria-label="删除图片">×</button></div>`).join('')}</div>` : ''}
+    </details>`;
+  }
+
   function sessionCardHTML(q, ent, review){
     const answered = review || (ent && ent.status !== 'unanswered');
     const revealed = !review && ent && ent.revealed;
@@ -600,6 +812,7 @@ textarea.draft::placeholder{color:#b3939c}
       ${showAnalysis ? feedbackHTML(q,ent,review) : ''}
       ${showAnswerBox ? answerBoxHTML(q) : ''}
       ${showAnalysis ? analysisHTML(q) : ''}
+      ${notesHTML(q.id)}
       ${!review ? `<div class="nav-row"><button class="nav-prev" data-action="prev" ${session.index===0?'disabled':''}>上一题</button><button class="nav-next" data-action="next" ${ent.status==='unanswered'?'disabled':''}>${session.index===session.ids.length-1?'完成本轮':'下一题'}</button></div><div class="kbd-hint">键盘：A–D 选择 · 1/2 判断 · Enter 下一题</div>` : ''}
     `;
   }
@@ -624,6 +837,7 @@ textarea.draft::placeholder{color:#b3939c}
       </div>
       <div class="progress"><i style="width:${pct}%"></i></div>
       <div class="question-card">${sessionCardHTML(q, ent, false)}</div>`;
+    saveProgress();
   }
 
   function renderWrong(){
@@ -689,6 +903,7 @@ textarea.draft::placeholder{color:#b3939c}
           <button class="btn-ghost" data-action="home">回首页</button>
         </div>
       </section>`;
+    saveProgress();
   }
 
   function startSessionByMode(mode){
@@ -708,6 +923,7 @@ textarea.draft::placeholder{color:#b3939c}
     const answered = session.entries.some(e => e.status !== 'unanswered');
     if(answered && !window.confirm('刷新后本轮进度清空，从第 1 题重新开始，确定吗？')) return;
     if(session.mode === 'wrong'){ beginSession('wrong', shuffle(session.ids)); return; }
+    clearProgress(session.mode);
     startSessionByMode(session.mode);
   }
 
@@ -723,7 +939,7 @@ textarea.draft::placeholder{color:#b3939c}
   function handleBack(){
     if(view === 'session'){
       const answered = session && session.entries.some(e => e.status !== 'unanswered');
-      if(answered && !window.confirm('退出本轮练习？本轮进度会清空，已加入错题本的题目会保留。')) return;
+      if(answered && !window.confirm('退出本轮练习？进度会自动保存，下次可从上次题目继续。')) return;
       go('home');
     }else if(view === 'review'){
       go('wrong');
@@ -740,7 +956,7 @@ textarea.draft::placeholder{color:#b3939c}
   function closeViewer(){ $('imgViewer').hidden = true; }
 
   viewEl.addEventListener('click', e => {
-    const img = e.target.closest('.rich img, .answer-box img, .analysis img');
+    const img = e.target.closest('.rich img, .answer-box img, .analysis img, .note-images img');
     if(img && !e.target.closest('button') && !e.target.closest('textarea')){
       openViewer(img.src);
       return;
@@ -748,8 +964,9 @@ textarea.draft::placeholder{color:#b3939c}
     const el = e.target.closest('[data-action]');
     if(!el) return;
     const action = el.dataset.action;
-    if(action === 'start-seq'){ startSequential(); }
-    else if(action === 'start-shuffle'){ startShuffle(); }
+    if(action === 'open-mode'){ openMode(el.dataset.mode); }
+    else if(action === 'resume-continue'){ resumeSession(); }
+    else if(action === 'resume-restart'){ clearProgress(pendingMode); launchMode(pendingMode); }
     else if(action === 'home'){ go('home'); }
     else if(action === 'answer'){ chooseOption(el.dataset.label); }
     else if(action === 'judge'){ chooseJudge(el.dataset.value); }
@@ -763,6 +980,18 @@ textarea.draft::placeholder{color:#b3939c}
     else if(action === 'clear-wrong'){ clearWrong(); }
     else if(action === 'review'){ reviewId = Number(el.dataset.id); go('review'); }
     else if(action === 'retry-one'){ startOne(Number(el.dataset.id)); }
+    else if(action === 'delete-note-image'){
+      const id = Number(el.dataset.noteId);
+      const index = Number(el.dataset.index);
+      const n = noteFor(id);
+      if(n.images[index]){
+        n.images.splice(index, 1);
+        if(!n.text.trim() && !n.images.length) delete notes[id];
+        else notes[id] = { text:n.text, images:n.images };
+        saveNotes();
+        render();
+      }
+    }
     else if(action === 'back'){ handleBack(); }
   });
 
@@ -770,7 +999,26 @@ textarea.draft::placeholder{color:#b3939c}
     const t = e.target;
     if(t.matches('textarea[data-draft]')){
       const ent = currentEntry();
-      if(ent) ent.draft = t.value;
+      if(ent){ ent.draft = t.value; saveProgress(); }
+    }else if(t.matches('.note-text')){
+      const id = Number(t.dataset.noteId);
+      const n = noteFor(id);
+      n.text = t.value;
+      if(!n.text.trim() && !n.images.length) delete notes[id];
+      else notes[id] = { text:n.text, images:n.images };
+      saveNotes();
+      const count = t.closest('.notes-box')?.querySelector('.note-count');
+      if(count) count.textContent = noteSummary(n);
+    }
+  });
+
+  viewEl.addEventListener('change', async e => {
+    const t = e.target;
+    if(t.matches('.note-file')){
+      const id = Number(t.dataset.noteId);
+      const files = [...t.files];
+      t.value = '';
+      if(files.length) await addNoteImages(id, files);
     }
   });
 
